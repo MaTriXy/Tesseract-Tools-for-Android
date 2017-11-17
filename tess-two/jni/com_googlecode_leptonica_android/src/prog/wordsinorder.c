@@ -58,8 +58,6 @@ l_int32      index, ival, rval, gval, bval;
 BOX         *box;
 BOXA        *boxa;
 BOXAA       *baa;
-JBDATA      *data;
-JBCLASSER   *classer;
 NUMA        *nai;
 NUMAA       *naa;
 SARRAY      *safiles;
@@ -91,7 +89,7 @@ static char  mainName[] = "wordsinorder";
     baa = boxaaCreate(nfiles);
     naa = numaaCreate(nfiles);
     for (i = 0; i < nfiles; i++) {
-        fname = sarrayGetString(safiles, i, 0);
+        fname = sarrayGetString(safiles, i, L_NOCOPY);
         if ((pixs = pixRead(fname)) == NULL) {
             L_WARNING("image file %d not read\n", mainName, i);
             continue;

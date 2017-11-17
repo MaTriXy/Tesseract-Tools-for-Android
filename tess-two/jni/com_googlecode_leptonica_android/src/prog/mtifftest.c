@@ -36,19 +36,19 @@
 #include "allheaders.h"
 #include <string.h>
 
-static const char *weasel_rev = "/tmp/tiff/weasel_rev";
-static const char *weasel_rev_rev = "/tmp/tiff/weasel_rev_rev";
-static const char *weasel_orig = "/tmp/tiff/weasel_orig";
-
+static const char *weasel_rev = "/tmp/lept/tiff/weasel_rev";
+static const char *weasel_rev_rev = "/tmp/lept/tiff/weasel_rev_rev";
+static const char *weasel_orig = "/tmp/lept/tiff/weasel_orig";
 
 int main(int    argc,
          char **argv)
 {
+l_uint8     *data;
 char        *fname, *filename;
 const char  *str;
 char         buffer[512];
-l_int32      i, count, npages, format;
-size_t       length;
+l_int32      i, n, npages;
+size_t       length, offset, size;
 FILE        *fp;
 NUMA        *naflags, *nasizes;
 PIX         *pix, *pix1, *pix2, *pixd;
@@ -60,15 +60,15 @@ static char  mainName[] = "mtifftest";
     if (argc != 1)
         return ERROR_INT(" Syntax:  mtifftest", mainName, 1);
 
-    lept_mkdir("tiff");
+    lept_mkdir("lept/tiff");
 
-#if 0   /* ------------------  Test multipage I/O  -------------------*/
+#if 1   /* ------------------  Test multipage I/O  -------------------*/
         /* This puts every image file in the directory with a string
-         * match to "weasel" into a multipage tiff file.
+         * match to "weasel8" into a multipage tiff file.
          * Images with 1 bpp are coded as g4; the others as zip.
          * It then reads back into a pix and displays.  */
-    writeMultipageTiff(".", "weasel8.", "/tmp/tiff/weasel8.tif");
-    pixa = pixaReadMultipageTiff("/tmp/tiff/weasel8.tif");
+    writeMultipageTiff(".", "weasel8.", "/tmp/lept/tiff/weasel8.tif");
+    pixa = pixaReadMultipageTiff("/tmp/lept/tiff/weasel8.tif");
     pixd = pixaDisplayTiledInRows(pixa, 1, 1200, 0.5, 0, 15, 4);
     pixDisplay(pixd, 100, 0);
     pixDestroy(&pixd);
@@ -79,9 +79,74 @@ static char  mainName[] = "mtifftest";
     pixDisplay(pixd, 100, 400);
     pixDestroy(&pixd);
     pixaDestroy(&pixa);
+
+        /* This uses the offset method for linearizing overhead of
+         * reading from a multi-image tiff file. */
+    offset = 0;
+    n = 0;
+    pixa = pixaCreate(8);
+    do {
+        pix1 = pixReadFromMultipageTiff("/tmp/lept/tiff/weasel8.tif", &offset);
+        if (!pix1) continue;
+        pixaAddPix(pixa, pix1, L_INSERT);
+        fprintf(stderr, "offset = %ld\n", (unsigned long)offset);
+        n++;
+    } while (offset != 0);
+    fprintf(stderr, "Num images = %d\n", n);
+    pixd = pixaDisplayTiledInRows(pixa, 32, 1200, 1.2, 0, 15, 4);
+    pixDisplay(pixd, 100, 550);
+    pixDestroy(&pixd);
+    pixaDestroy(&pixa);
+
+        /* This uses the offset method for linearizing overhead of
+         * reading from a multi-image tiff file in memory. */
+    offset = 0;
+    n = 0;
+    pixa = pixaCreate(8);
+    data = l_binaryRead("/tmp/lept/tiff/weasel8.tif", &size);
+    do {
+        pix1 = pixReadMemFromMultipageTiff(data, size, &offset);
+        if (!pix1) continue;
+        pixaAddPix(pixa, pix1, L_INSERT);
+        fprintf(stderr, "offset = %ld\n", (unsigned long)offset);
+        n++;
+    } while (offset != 0);
+    fprintf(stderr, "Num images = %d\n", n);
+    pixd = pixaDisplayTiledInRows(pixa, 32, 1200, 1.2, 0, 15, 4);
+    pixDisplay(pixd, 100, 700);
+    pixDestroy(&pixd);
+    pixaDestroy(&pixa);
+    lept_free(data);
+
+        /* This makes a 1001 image tiff file and gives timing
+         * for writing and reading.  Reading uses the offset method
+         * and the time is linear in the number of images, but the
+         * writing time is quadratic and the actual wall clock time is
+         * significantly more than the printed value. */
+    pix1 = pixRead("char.tif");
+    startTimer();
+    pixWriteTiff("/tmp/lept/tiff/junkm.tif", pix1, IFF_TIFF_G4, "w");
+    for (i = 0; i < 1000; i++) {
+        pixWriteTiff("/tmp/lept/tiff/junkm.tif", pix1, IFF_TIFF_G4, "a");
+    }
+    pixDestroy(&pix1);
+    fprintf(stderr, "Time to write: %7.3f\n", stopTimer());
+    startTimer();
+    offset = 0;
+    n = 0;
+    do {
+        pix1 = pixReadFromMultipageTiff("/tmp/lept/tiff/junkm.tif", &offset);
+        if (!pix1) continue;
+        if (n % 100 == 0)
+            fprintf(stderr, "offset = %ld\n", (unsigned long)offset);
+        pixDestroy(&pix1);
+        n++;
+    } while (offset != 0);
+    fprintf(stderr, "Time to read: %7.3f\n", stopTimer());
+    fprintf(stderr, "Num images = %d\n", n);
 #endif
 
-#if 0   /* ------------ Test single-to-multipage I/O  -------------------*/
+#if 1   /* ------------ Test single-to-multipage I/O  -------------------*/
         /* Read the files and generate a multipage tiff file of G4 images.
          * Then convert that to a G4 compressed and ascii85 encoded PS file. */
     sa = getSortedPathnamesInDirectory(".", "weasel4.", 0, 4);
@@ -90,27 +155,33 @@ static char  mainName[] = "mtifftest";
     sarrayWriteStream(stderr, sa);
     npages = sarrayGetCount(sa);
     for (i = 0; i < npages; i++) {
-        fname = sarrayGetString(sa, i, 0);
+        fname = sarrayGetString(sa, i, L_NOCOPY);
         filename = genPathname(".", fname);
         pix1 = pixRead(filename);
         if (!pix1) continue;
         pix2 = pixConvertTo1(pix1, 128);
         if (i == 0)
-            pixWriteTiff("/tmp/tiff/weasel4", pix2, format, "w+");
+            pixWriteTiff("/tmp/lept/tiff/weasel4", pix2, IFF_TIFF_G4, "w+");
         else
-            pixWriteTiff("/tmp/tiff/weasel4", pix2, format, "a");
+            pixWriteTiff("/tmp/lept/tiff/weasel4", pix2, IFF_TIFF_G4, "a");
         pixDestroy(&pix1);
         pixDestroy(&pix2);
         lept_free(filename);
     }
 
         /* Write it out as a PS file */
-    convertTiffMultipageToPS("/tmp/tiff/weasel4", "/tmp/tiff/weasel4.ps",
-                             NULL, 0.95);
+    fprintf(stderr, "Writing to: /tmp/lept/tiff/weasel4.ps\n");
+    convertTiffMultipageToPS("/tmp/lept/tiff/weasel4",
+                             "/tmp/lept/tiff/weasel4.ps", 0.95);
+
+        /* Write it out as a pdf file */
+    fprintf(stderr, "Writing to: /tmp/lept/tiff/weasel4.pdf\n");
+    convertTiffMultipageToPdf("/tmp/lept/tiff/weasel4",
+                              "/tmp/lept/tiff/weasel4.pdf");
     sarrayDestroy(&sa);
 #endif
 
-#if 0   /* ------------------  Test multipage I/O  -------------------*/
+#if 1   /* ------------------  Test multipage I/O  -------------------*/
         /* Read count of pages in tiff multipage  file */
     writeMultipageTiff(".", "weasel2", weasel_orig);
     fp = lept_fopen(weasel_orig, "rb");
@@ -124,18 +195,16 @@ static char  mainName[] = "mtifftest";
 
         /* Split into separate page files */
     for (i = 0; i < npages + 1; i++) {   /* read one beyond to catch error */
-        if (i == npages)
-            L_INFO("Errors in next 2 lines are intentional!\n", mainName);
         pix = pixReadTiff(weasel_orig, i);
         if (!pix) continue;
-        sprintf(buffer, "/tmp/tiff/%03d.tif", i);
+        sprintf(buffer, "/tmp/lept/tiff/%03d.tif", i);
         pixWrite(buffer, pix, IFF_TIFF_ZIP);
         pixDestroy(&pix);
     }
 
         /* Read separate page files and write reversed file */
     for (i = npages - 1; i >= 0; i--) {
-        sprintf(buffer, "/tmp/tiff/%03d.tif", i);
+        sprintf(buffer, "/tmp/lept/tiff/%03d.tif", i);
         pix = pixRead(buffer);
         if (!pix) continue;
         if (i == npages - 1)
@@ -163,7 +232,7 @@ static char  mainName[] = "mtifftest";
 #endif
 
 
-#if 1    /* -----   test adding custom public tags to a tiff header ----- */
+#if 0    /* -----   test adding custom public tags to a tiff header ----- */
     pix = pixRead("feyn.tif");
     naflags = numaCreate(10);
     savals = sarrayCreate(10);
@@ -174,29 +243,29 @@ static char  mainName[] = "mtifftest";
     numaAddNumber(naflags, 700);
     str = "<xmp>This is a Fake XMP packet</xmp>\n<text>Guess what ...?</text>";
     length = strlen(str);
-    sarrayAddString(savals, (char *)str, 1);
-    sarrayAddString(satypes, (char *)"char*", 1);
+    sarrayAddString(savals, (char *)str, L_COPY);
+    sarrayAddString(satypes, (char *)"char*", L_COPY);
     numaAddNumber(nasizes, length);  /* get it all */
 
     numaAddNumber(naflags, 269);  /* DOCUMENTNAME */
-    sarrayAddString(savals, (char *)"One silly title", 1);
-    sarrayAddString(satypes, (char *)"const char*", 1);
+    sarrayAddString(savals, (char *)"One silly title", L_COPY);
+    sarrayAddString(satypes, (char *)"const char*", L_COPY);
     numaAddNumber(naflags, 270);  /* IMAGEDESCRIPTION */
-    sarrayAddString(savals, (char *)"One page of text", 1);
-    sarrayAddString(satypes, (char *)"const char*", 1);
+    sarrayAddString(savals, (char *)"One page of text", L_COPY);
+    sarrayAddString(satypes, (char *)"const char*", L_COPY);
         /* the max sample is used by rendering programs
          * to scale the dynamic range */
     numaAddNumber(naflags, 281);  /* MAXSAMPLEVALUE */
-    sarrayAddString(savals, (char *)"4", 1);
-    sarrayAddString(satypes, (char *)"l_uint16", 1);
+    sarrayAddString(savals, (char *)"4", L_COPY);
+    sarrayAddString(satypes, (char *)"l_uint16", L_COPY);
         /* note that date is required to be a 20 byte string */
     numaAddNumber(naflags, 306);  /* DATETIME */
-    sarrayAddString(savals, (char *)"2004:10:11 09:35:15", 1);
-    sarrayAddString(satypes, (char *)"const char*", 1);
+    sarrayAddString(savals, (char *)"2004:10:11 09:35:15", L_COPY);
+    sarrayAddString(satypes, (char *)"const char*", L_COPY);
         /* note that page number requires 2 l_uint16 input */
     numaAddNumber(naflags, 297);  /* PAGENUMBER */
-    sarrayAddString(savals, (char *)"1-412", 1);
-    sarrayAddString(satypes, (char *)"l_uint16-l_uint16", 1);
+    sarrayAddString(savals, (char *)"1-412", L_COPY);
+    sarrayAddString(satypes, (char *)"l_uint16-l_uint16", L_COPY);
     pixWriteTiffCustom("/tmp/tiff/tags.tif", pix, IFF_TIFF_G4, "w", naflags,
                        savals, satypes, nasizes);
     fprintTiffInfo(stderr, (char *)"/tmp/tiff/tags.tif");
@@ -213,4 +282,3 @@ static char  mainName[] = "mtifftest";
 
     return 0;
 }
-

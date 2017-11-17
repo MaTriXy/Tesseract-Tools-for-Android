@@ -59,10 +59,10 @@ bool FontInfoTable::DeSerialize(bool swap, FILE* fp) {
 // Returns true if the given set of fonts includes one with the same
 // properties as font_id.
 bool FontInfoTable::SetContainsFontProperties(
-    int font_id, const GenericVector<int>& font_set) const {
+    int font_id, const GenericVector<ScoredFont>& font_set) const {
   uinT32 properties = get(font_id).properties;
   for (int f = 0; f < font_set.size(); ++f) {
-    if (get(font_set[f]).properties == properties)
+    if (get(font_set[f].fontinfo_id).properties == properties)
       return true;
   }
   return false;
@@ -70,12 +70,12 @@ bool FontInfoTable::SetContainsFontProperties(
 
 // Returns true if the given set of fonts includes multiple properties.
 bool FontInfoTable::SetContainsMultipleFontProperties(
-    const GenericVector<int>& font_set) const {
+    const GenericVector<ScoredFont>& font_set) const {
   if (font_set.empty()) return false;
-  int first_font = font_set[0];
+  int first_font = font_set[0].fontinfo_id;
   uinT32 properties = get(first_font).properties;
   for (int f = 1; f < font_set.size(); ++f) {
-    if (get(font_set[f]).properties != properties)
+    if (get(font_set[f].fontinfo_id).properties != properties)
       return true;
   }
   return false;
@@ -241,7 +241,7 @@ bool read_set(FILE* f, FontSet* fs, bool swap) {
   if (fread(&fs->size, sizeof(fs->size), 1, f) != 1) return false;
   if (swap)
     Reverse32(&fs->size);
-  fs->configs = new int[fs->size];
+  fs->configs = new int32_t[fs->size];
   for (int i = 0; i < fs->size; ++i) {
     if (fread(&fs->configs[i], sizeof(fs->configs[i]), 1, f) != 1) return false;
     if (swap)

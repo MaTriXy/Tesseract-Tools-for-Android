@@ -27,6 +27,7 @@ LOCAL_LDLIBS := \
 
 LOCAL_SRC_FILES += \
   box.cpp \
+  boxa.cpp \
   pix.cpp \
   pixa.cpp \
   utilities.cpp \
@@ -36,13 +37,16 @@ LOCAL_SRC_FILES += \
   
 LOCAL_C_INCLUDES += \
   $(LOCAL_PATH) \
-  $(LEPTONICA_PATH)/src
+  $(LEPTONICA_PATH)/src \
+  $(LIBJPEG_PATH) \
+  $(LIBPNG_PATH)
 
 LOCAL_LDLIBS += \
   -ljnigraphics \
   -llog
 
 # common
+LOCAL_SHARED_LIBRARIES:= libjpgt libpngt
 
 LOCAL_PRELINK_MODULE:= false
 

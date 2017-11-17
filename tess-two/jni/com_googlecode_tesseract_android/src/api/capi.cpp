@@ -1,3 +1,20 @@
+///////////////////////////////////////////////////////////////////////
+// File:        capi.cpp
+// Description: C-API TessBaseAPI
+//
+// (C) Copyright 2012, Google Inc.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// http://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+///////////////////////////////////////////////////////////////////////
+
 #ifndef TESS_CAPI_INCLUDE_BASEAPI
 #   define TESS_CAPI_INCLUDE_BASEAPI
 #endif
@@ -64,7 +81,7 @@ TESS_API TessResultRenderer* TESS_CALL TessBoxTextRendererCreate(const char* out
 
 TESS_API void TESS_CALL TessDeleteResultRenderer(TessResultRenderer* renderer)
 {
-    delete [] renderer;
+    delete renderer;
 }
 
 TESS_API void TESS_CALL TessResultRendererInsert(TessResultRenderer* renderer, TessResultRenderer* next)
@@ -424,7 +441,7 @@ TESS_API int TESS_CALL TessBaseAPIRecognizeForChopTest(TessBaseAPI* handle, ETEX
 TESS_API BOOL TESS_CALL TessBaseAPIProcessPages(TessBaseAPI* handle, const char* filename, const char* retry_config,
                                                 int timeout_millisec, TessResultRenderer* renderer)
 {
-    if (handle->ProcessPages(filename, retry_config, timeout_millisec, renderer))    
+    if (handle->ProcessPages(filename, retry_config, timeout_millisec, renderer))
         return TRUE;
     else
         return FALSE;
@@ -456,7 +473,7 @@ TESS_API char* TESS_CALL TessBaseAPIGetUTF8Text(TessBaseAPI* handle)
 
 TESS_API char* TESS_CALL TessBaseAPIGetHOCRText(TessBaseAPI* handle, int page_number)
 {
-    return handle->GetHOCRText(page_number);
+    return handle->GetHOCRText(NULL, page_number);
 }
 
 TESS_API char* TESS_CALL TessBaseAPIGetBoxText(TessBaseAPI* handle, int page_number)
@@ -521,8 +538,17 @@ TESS_API void TESS_CALL TessBaseAPISetProbabilityInContextFunc(TessBaseAPI* hand
 
 TESS_API BOOL TESS_CALL TessBaseAPIDetectOS(TessBaseAPI* handle, OSResults* results)
 {
-    return handle->DetectOS(results) ? TRUE : FALSE;
+    return FALSE; // Unsafe ABI, return FALSE always
 }
+
+TESS_API BOOL TESS_CALL TessBaseAPIDetectOrientationScript(TessBaseAPI* handle,
+                                                            int* orient_deg, float* orient_conf, const char** script_name, float* script_conf)
+{
+    bool success;
+    success = handle->DetectOrientationScript(orient_deg, orient_conf, script_name, script_conf);
+    return (BOOL)success;
+}
+
 
 TESS_API void TESS_CALL TessBaseAPIGetFeaturesForBlob(TessBaseAPI* handle, TBLOB* blob, INT_FEATURE_STRUCT* int_features,
                                                             int* num_features, int* FeatureOutlineIndex)
@@ -581,10 +607,12 @@ TESS_API void TESS_CALL TessBaseAPIInitTruthCallback(TessBaseAPI* handle, TessTr
     handle->InitTruthCallback(cb);
 }
 
+#ifndef NO_CUBE_BUILD
 TESS_API TessCubeRecoContext* TESS_CALL TessBaseAPIGetCubeRecoContext(const TessBaseAPI* handle)
 {
     return handle->GetCubeRecoContext();
 }
+#endif  // NO_CUBE_BUILD
 
 TESS_API void TESS_CALL TessBaseAPISetMinOrientationMargin(TessBaseAPI* handle, double margin)
 {
@@ -667,6 +695,18 @@ TESS_API void TESS_CALL TessPageIteratorOrientation(TessPageIterator* handle, Te
     handle->Orientation(orientation, writing_direction, textline_order, deskew_angle);
 }
 
+TESS_API void  TESS_CALL TessPageIteratorParagraphInfo(TessPageIterator* handle, TessParagraphJustification* justification,
+                                                       BOOL *is_list_item, BOOL *is_crown, int *first_line_indent)
+{
+    bool bool_is_list_item, bool_is_crown;
+    handle->ParagraphInfo(justification, &bool_is_list_item, &bool_is_crown, first_line_indent);
+    if (is_list_item)
+        *is_list_item = bool_is_list_item ? TRUE : FALSE;
+    if (is_crown)
+        *is_crown = bool_is_crown ? TRUE : FALSE;
+}
+
+
 TESS_API void TESS_CALL TessResultIteratorDelete(TessResultIterator* handle)
 {
     delete handle;
@@ -687,7 +727,7 @@ TESS_API const TessPageIterator* TESS_CALL TessResultIteratorGetPageIteratorCons
     return handle;
 }
 
-TESS_API const TessChoiceIterator* TESS_CALL TessResultIteratorGetChoiceIterator(const TessResultIterator* handle)
+TESS_API TessChoiceIterator* TESS_CALL TessResultIteratorGetChoiceIterator(const TessResultIterator* handle)
 {
     return new TessChoiceIterator(*handle);
 }

@@ -41,7 +41,7 @@ char        *filein, *fileout;
 l_uint8     *array1, *array2, *dataout, *dataout2;
 l_int32      i, blocksize, same;
 size_t       nbytes, nout, nout2;
-BBUFFER     *bb, *bb2;
+L_BBUFFER   *bb, *bb2;
 FILE        *fp;
 static char  mainName[] = "buffertest";
 
@@ -100,6 +100,7 @@ static char  mainName[] = "buffertest";
     bbufferWriteStream(bb2, fp, nbytes, &nout);
     fprintf(stderr, " bytes written out to fileout: %lu\n",
             (unsigned long)nout);
+    lept_fclose(fp);
 
     bbufferDestroy(&bb);
     bbufferDestroy(&bb2);

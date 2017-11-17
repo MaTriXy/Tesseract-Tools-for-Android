@@ -34,8 +34,7 @@ FILE* OpenBoxFile(const STRING& fname) {
   STRING filename = BoxFileName(fname);
   FILE* box_file = NULL;
   if (!(box_file = fopen(filename.string(), "rb"))) {
-    CANTOPENFILE.error("read_next_box", TESSEXIT,
-                       "Cant open box file %s",
+    CANTOPENFILE.error("read_next_box", TESSEXIT, "Can't open box file %s",
                        filename.string());
   }
   return box_file;
@@ -78,7 +77,7 @@ bool ReadMemBoxes(int target_page, bool skip_blanks, const char* box_data,
     if (!ParseBoxFileStr(lines[i].string(), &page, &utf8_str, &box)) {
       continue;
     }
-    if (skip_blanks && utf8_str == " ") continue;
+    if (skip_blanks && (utf8_str == " " || utf8_str == "\t")) continue;
     if (target_page >= 0 && page != target_page) continue;
     if (boxes != NULL) boxes->push_back(box);
     if (texts != NULL) texts->push_back(utf8_str);

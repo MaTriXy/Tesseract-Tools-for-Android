@@ -1,7 +1,7 @@
 /**********************************************************************
  * File:        pageres.h  (Formerly page_res.h)
  * Description: Results classes used by control.c
- * Author:		Phil Cheatle
+ * Author:    Phil Cheatle
  * Created:     Tue Sep 22 08:42:49 BST 1992
  *
  * (C) Copyright 1992, Hewlett-Packard Ltd.
@@ -294,6 +294,10 @@ class WERD_RES : public ELIST_LINK {
   CRUNCH_MODE unlv_crunch_mode;
   float x_height;              // post match estimate
   float caps_height;           // post match estimate
+  float baseline_shift;        // post match estimate.
+  // Certainty score for the spaces either side of this word (LSTM mode).
+  // MIN this value with the actual word certainty.
+  float space_certainty;
 
   /*
     To deal with fuzzy spaces we need to be able to combine "words" to form
@@ -314,8 +318,6 @@ class WERD_RES : public ELIST_LINK {
   BOOL8 combination;           //of two fuzzy gap wds
   BOOL8 part_of_combo;         //part of a combo
   BOOL8 reject_spaces;         //Reject spacing?
-  // FontInfo ids for each unichar in best_choice.
-  GenericVector<inT8> best_choice_fontinfo_ids;
 
   WERD_RES() {
     InitNonPointers();
@@ -328,7 +330,7 @@ class WERD_RES : public ELIST_LINK {
   }
   // Deep copies everything except the ratings MATRIX.
   // To get that use deep_copy below.
-  WERD_RES(const WERD_RES &source) {
+  WERD_RES(const WERD_RES& source) : ELIST_LINK(source) {
     InitPointers();
     *this = source;            // see operator=
   }
@@ -340,7 +342,7 @@ class WERD_RES : public ELIST_LINK {
   // This matters for mirrorable characters such as parentheses.  We recognize
   // characters purely based on their shape on the page, and by default produce
   // the corresponding unicode for a left-to-right context.
-  const char* const BestUTF8(int blob_index, bool in_rtl_context) const {
+  const char* BestUTF8(int blob_index, bool in_rtl_context) const {
     if (blob_index < 0 || best_choice == NULL ||
         blob_index >= best_choice->length())
       return NULL;
@@ -353,7 +355,7 @@ class WERD_RES : public ELIST_LINK {
     return uch_set->id_to_unichar_ext(id);
   }
   // Returns the UTF-8 string for the given blob index in the raw_choice word.
-  const char* const RawUTF8(int blob_index) const {
+  const char* RawUTF8(int blob_index) const {
     if (blob_index < 0 || blob_index >= raw_choice->length())
       return NULL;
     UNICHAR_ID id = raw_choice->unichar_id(blob_index);
@@ -591,7 +593,7 @@ class WERD_RES : public ELIST_LINK {
 
   // Creates a WERD_CHOICE for the word using the top choices from the leading
   // diagonal of the ratings matrix.
-  void FakeWordFromRatings();
+  void FakeWordFromRatings(PermuterType permuter);
 
   // Copies the best_choice strings to the correct_text for adaption/training.
   void BestChoiceToCorrectText();
@@ -631,7 +633,7 @@ class WERD_RES : public ELIST_LINK {
   static WERD_RES* deep_copy(const WERD_RES* src) {
     WERD_RES* result = new WERD_RES(*src);
     // That didn't copy the ratings, but we want a copy if there is one to
-    // begin width.
+    // begin with.
     if (src->ratings != NULL)
       result->ratings = src->ratings->DeepCopy();
     return result;
@@ -707,6 +709,10 @@ class PAGE_RES_IT {
   // Deletes the current WERD_RES and its underlying WERD.
   void DeleteCurrentWord();
 
+  // Makes the current word a fuzzy space if not already fuzzy. Updates
+  // corresponding part of combo if required.
+  void MakeCurrentWordFuzzy();
+
   WERD_RES *forward() {  // Get next word.
     return internal_forward(false, false);
   }
@@ -746,9 +752,9 @@ class PAGE_RES_IT {
     return next_block_res;
   }
   void rej_stat_word();  // for page/block/row
+  void ResetWordIterator();
 
  private:
-  void ResetWordIterator();
   WERD_RES *internal_forward(bool new_block, bool empty_ok);
 
   WERD_RES * prev_word_res;    // previous word

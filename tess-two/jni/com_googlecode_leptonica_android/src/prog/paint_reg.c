@@ -107,7 +107,6 @@ L_REGPARAMS  *rp;
     pixg = pixClipRectangle(pixs, box, NULL);
     pixb = pixThresholdToBinary(pixg, 180);
     pixInvert(pixb, pixb);
-    pixDisplayWrite(pixb, 1);
     composeRGBPixel(50, 0, 250, &val32);
     pixPaintThroughMask(pixt, pixb, box->x, box->y, val32);
     boxDestroy(&box);
@@ -290,8 +289,8 @@ L_REGPARAMS  *rp;
         /* If in testing mode, make a pdf */
     if (rp->display) {
         pixaConvertToPdf(pixa, 100, 1.0, L_FLATE_ENCODE, 0,
-                         "Colorize and paint", "/tmp/regout/paint.pdf");
-        L_INFO("Output pdf: /tmp/regout/paint.pdf\n", rp->testname);
+                         "Colorize and paint", "/tmp/lept/regout/paint.pdf");
+        L_INFO("Output pdf: /tmp/lept/regout/paint.pdf\n", rp->testname);
     }
 
     pixaDestroy(&pixa);

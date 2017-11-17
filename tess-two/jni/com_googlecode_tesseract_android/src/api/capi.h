@@ -1,5 +1,22 @@
-#ifndef TESSERACT_API_CAPI_H__
-#define TESSERACT_API_CAPI_H__
+///////////////////////////////////////////////////////////////////////
+// File:        capi.h
+// Description: C-API TessBaseAPI
+//
+// (C) Copyright 2012, Google Inc.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// http://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+///////////////////////////////////////////////////////////////////////
+
+#ifndef API_CAPI_H_
+#define API_CAPI_H_
 
 #ifdef TESS_CAPI_INCLUDE_BASEAPI
 #   include "baseapi.h"
@@ -51,8 +68,11 @@ typedef tesseract::ProbabilityInContextFunc TessProbabilityInContextFunc;
 typedef tesseract::FillLatticeFunc TessFillLatticeFunc;
 typedef tesseract::Dawg TessDawg;
 typedef tesseract::TruthCallback TessTruthCallback;
+#ifndef NO_CUBE_BUILD
 typedef tesseract::CubeRecoContext TessCubeRecoContext;
+#endif  // NO_CUBE_BUILD
 typedef tesseract::Orientation TessOrientation;
+typedef tesseract::ParagraphJustification TessParagraphJustification;
 typedef tesseract::WritingDirection TessWritingDirection;
 typedef tesseract::TextlineOrder TessTextlineOrder;
 typedef PolyBlockType TessPolyBlockType;
@@ -77,6 +97,7 @@ typedef enum TessPolyBlockType     { PT_UNKNOWN, PT_FLOWING_TEXT, PT_HEADING_TEX
                                      PT_TABLE, PT_VERTICAL_TEXT, PT_CAPTION_TEXT, PT_FLOWING_IMAGE, PT_HEADING_IMAGE,
                                      PT_PULLOUT_IMAGE, PT_HORZ_LINE, PT_VERT_LINE, PT_NOISE, PT_COUNT } TessPolyBlockType;
 typedef enum TessOrientation       { ORIENTATION_PAGE_UP, ORIENTATION_PAGE_RIGHT, ORIENTATION_PAGE_DOWN, ORIENTATION_PAGE_LEFT } TessOrientation;
+typedef enum TessParagraphJustification { JUSTIFICATION_UNKNOWN, JUSTIFICATION_LEFT, JUSTIFICATION_CENTER, JUSTIFICATION_RIGHT } TessParagraphJustification;
 typedef enum TessWritingDirection  { WRITING_DIRECTION_LEFT_TO_RIGHT, WRITING_DIRECTION_RIGHT_TO_LEFT, WRITING_DIRECTION_TOP_TO_BOTTOM } TessWritingDirection;
 typedef enum TessTextlineOrder     { TEXTLINE_ORDER_LEFT_TO_RIGHT, TEXTLINE_ORDER_RIGHT_TO_LEFT, TEXTLINE_ORDER_TOP_TO_BOTTOM } TessTextlineOrder;
 typedef struct ETEXT_DESC ETEXT_DESC;
@@ -264,7 +285,13 @@ TESS_API void  TESS_CALL TessBaseAPIClearPersistentCache(TessBaseAPI* handle);
 TESS_API void  TESS_CALL TessBaseAPISetProbabilityInContextFunc(TessBaseAPI* handle, TessProbabilityInContextFunc f);
 
 TESS_API void  TESS_CALL TessBaseAPISetFillLatticeFunc(TessBaseAPI* handle, TessFillLatticeFunc f);
+
+// Deprecated, no longer working
 TESS_API BOOL  TESS_CALL TessBaseAPIDetectOS(TessBaseAPI* handle, OSResults* results);
+
+// Call TessDeleteText(*best_script_name) to free memory allocated by this function
+TESS_API BOOL  TESS_CALL TessBaseAPIDetectOrientationScript(TessBaseAPI* handle,
+                                                            int* orient_deg, float* orient_conf, const char **script_name, float* script_conf);
 
 TESS_API void  TESS_CALL TessBaseAPIGetFeaturesForBlob(TessBaseAPI* handle, TBLOB* blob, INT_FEATURE_STRUCT* int_features,
                                                        int* num_features, int* FeatureOutlineIndex);
@@ -293,13 +320,15 @@ TESS_API TessOcrEngineMode
                TESS_CALL TessBaseAPIOem(const TessBaseAPI* handle);
 TESS_API void  TESS_CALL TessBaseAPIInitTruthCallback(TessBaseAPI* handle, TessTruthCallback* cb);
 
+#ifndef NO_CUBE_BUILD
 TESS_API TessCubeRecoContext*
                TESS_CALL TessBaseAPIGetCubeRecoContext(const TessBaseAPI* handle);
+#endif  // NO_CUBE_BUILD
 #endif
 
 TESS_API void  TESS_CALL TessBaseAPISetMinOrientationMargin(TessBaseAPI* handle, double margin);
 #ifdef TESS_CAPI_INCLUDE_BASEAPI
-TESS_API void  TESS_CALL TessBaseGetBlockTextOrientations(TessBaseAPI* handle, int** block_orientation, bool** vertical_writing);
+TESS_API void  TESS_CALL TessBaseGetBlockTextOrientations(TessBaseAPI* handle, int** block_orientation, BOOL** vertical_writing);
 
 TESS_API BLOCK_LIST*
                TESS_CALL TessBaseAPIFindLinesCreateBlockList(TessBaseAPI* handle);
@@ -335,6 +364,9 @@ TESS_API void  TESS_CALL TessPageIteratorOrientation(TessPageIterator* handle, T
                                                      TessWritingDirection* writing_direction, TessTextlineOrder* textline_order,
                                                      float* deskew_angle);
 
+TESS_API void  TESS_CALL TessPageIteratorParagraphInfo(TessPageIterator* handle, TessParagraphJustification* justification,
+                                                       BOOL *is_list_item, BOOL *is_crown, int *first_line_indent);
+
 /* Result iterator */
 
 TESS_API void  TESS_CALL TessResultIteratorDelete(TessResultIterator* handle);
@@ -344,7 +376,7 @@ TESS_API TessPageIterator*
                TESS_CALL TessResultIteratorGetPageIterator(TessResultIterator* handle);
 TESS_API const TessPageIterator*
                TESS_CALL TessResultIteratorGetPageIteratorConst(const TessResultIterator* handle);
-TESS_API const TessChoiceIterator*
+TESS_API TessChoiceIterator*
                TESS_CALL TessResultIteratorGetChoiceIterator(const TessResultIterator* handle);
 
 TESS_API BOOL  TESS_CALL TessResultIteratorNext(TessResultIterator* handle, TessPageIteratorLevel level);
@@ -372,4 +404,4 @@ TESS_API float TESS_CALL TessChoiceIteratorConfidence(const TessChoiceIterator* 
 }
 #endif
 
-#endif /* TESSERACT_API_CAPI_H__ */
+#endif  // API_CAPI_H_

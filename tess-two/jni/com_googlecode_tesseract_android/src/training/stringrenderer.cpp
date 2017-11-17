@@ -52,7 +52,7 @@ static const int kDefaultOutputResolution = 300;
 // Word joiner (U+2060) inserted after letters in ngram mode, as per
 // recommendation in http://unicode.org/reports/tr14/ to avoid line-breaks at
 // hyphens and other non-alpha characters.
-static const char* kWordJoinerUTF8 = "\u2060";
+static const char* kWordJoinerUTF8 = "\xE2\x81\xA0";  // u8"\u2060";
 static const char32 kWordJoiner = 0x2060;
 
 static bool IsCombiner(int ch) {
@@ -108,6 +108,7 @@ StringRenderer::StringRenderer(const string& font_desc, int page_width,
       underline_start_prob_(0),
       underline_continuation_prob_(0),
       underline_style_(PANGO_UNDERLINE_SINGLE),
+      features_(NULL),
       drop_uncovered_chars_(true),
       strip_unrenderable_words_(false),
       add_ligatures_(false),
@@ -140,7 +141,16 @@ void StringRenderer::set_resolution(const int resolution) {
   font_.set_resolution(resolution);
 }
 
+void StringRenderer::set_underline_start_prob(const double frac) {
+  underline_start_prob_ = min(max(frac, 0.0), 1.0);
+}
+
+void StringRenderer::set_underline_continuation_prob(const double frac) {
+  underline_continuation_prob_ = min(max(frac, 0.0), 1.0);
+}
+
 StringRenderer::~StringRenderer() {
+  free(features_);
   ClearBoxes();
   FreePangoCairo();
 }
@@ -196,6 +206,13 @@ void StringRenderer::SetLayoutProperties() {
     spacing_attr->end_index = static_cast<guint>(-1);
     pango_attr_list_change(attr_list, spacing_attr);
   }
+#if (PANGO_VERSION_MAJOR == 1 && PANGO_VERSION_MINOR >= 38)
+  if (add_ligatures_) {
+    set_features("liga, clig, dlig, hlig");
+    PangoAttribute* feature_attr = pango_attr_font_features_new(features_);
+    pango_attr_list_change(attr_list, feature_attr);
+  }
+#endif
   pango_layout_set_attributes(layout_, attr_list);
   pango_attr_list_unref(attr_list);
   // Adjust line spacing
@@ -227,7 +244,7 @@ void StringRenderer::SetWordUnderlineAttributes(const string& page_text) {
   int offset = 0;
   TRand rand;
   bool started_underline = false;
-  PangoAttribute* und_attr = nullptr;
+  PangoAttribute* und_attr = NULL;
 
   while (offset < page_text.length()) {
     offset += SpanUTF8Whitespace(text + offset);
@@ -246,7 +263,7 @@ void StringRenderer::SetWordUnderlineAttributes(const string& page_text) {
         // previous word.
         pango_attr_list_insert(attr_list, und_attr);
         started_underline = false;
-        und_attr = nullptr;
+        und_attr = NULL;
       }
     }
     if (!started_underline && RandBool(underline_start_prob_, &rand)) {
@@ -330,7 +347,13 @@ void StringRenderer::ClearBoxes() {
   boxaDestroy(&page_boxes_);
 }
 
-void StringRenderer::WriteAllBoxes(const string& filename) const {
+string StringRenderer::GetBoxesStr() {
+  BoxChar::PrepareToWrite(&boxchars_);
+  return BoxChar::GetTesseractBoxStr(page_height_, boxchars_);
+}
+
+void StringRenderer::WriteAllBoxes(const string& filename) {
+  BoxChar::PrepareToWrite(&boxchars_);
   BoxChar::WriteTesseractBoxFile(filename, page_height_, boxchars_);
 }
 
@@ -377,7 +400,7 @@ bool StringRenderer::GetClusterStrings(vector<string>* cluster_text) {
        it != start_byte_to_text.end(); ++it) {
     cluster_text->push_back(it->second);
   }
-  return cluster_text->size();
+  return !cluster_text->empty();
 }
 
 // Merges an array of BoxChars into words based on the identification of
@@ -477,7 +500,7 @@ void StringRenderer::ComputeClusterBoxes() {
     const int end_byte_index = cluster_start_to_end_index[start_byte_index];
     string cluster_text = string(text + start_byte_index,
                                  end_byte_index - start_byte_index);
-    if (cluster_text.size() && cluster_text[0] == '\n') {
+    if (!cluster_text.empty() && cluster_text[0] == '\n') {
       tlog(2, "Skipping newlines at start of text.\n");
       continue;
     }
@@ -577,11 +600,12 @@ void StringRenderer::ComputeClusterBoxes() {
       all_boxes = boxaCreate(0);
     boxaAddBox(all_boxes, page_boxchars[i]->mutable_box(), L_CLONE);
   }
-  boxaGetExtent(all_boxes, NULL, NULL, &page_box);
-  boxaDestroy(&all_boxes);
-  if (page_boxes_ == NULL)
-    page_boxes_ = boxaCreate(0);
-  boxaAddBox(page_boxes_, page_box, L_INSERT);
+  if (all_boxes != NULL) {
+    boxaGetExtent(all_boxes, NULL, NULL, &page_box);
+    boxaDestroy(&all_boxes);
+    if (page_boxes_ == NULL) page_boxes_ = boxaCreate(0);
+    boxaAddBox(page_boxes_, page_box, L_INSERT);
+  }
 }
 
 
@@ -818,6 +842,7 @@ int StringRenderer::RenderToImage(const char* text, int text_length,
 int StringRenderer::RenderAllFontsToImage(double min_coverage,
                                           const char* text, int text_length,
                                           string* font_used, Pix** image) {
+  *image = NULL;
   // Select a suitable font to render the title with.
   const char kTitleTemplate[] = "%s : %d hits = %.2f%%, raw = %d = %.2f%%";
   string title_font;
@@ -881,10 +906,9 @@ int StringRenderer::RenderAllFontsToImage(double min_coverage,
               all_fonts[i].c_str(), ok_chars, 100.0 * ok_chars / total_chars_);
     }
   }
-  *image = NULL;
   font_index_ = 0;
   char_map_.clear();
-  return last_offset_;
+  return last_offset_ == 0 ? -1 : last_offset_;
 }
 
 }  // namespace tesseract

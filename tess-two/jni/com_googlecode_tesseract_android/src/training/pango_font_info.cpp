@@ -22,15 +22,29 @@
 #include "config_auto.h"
 #endif
 
-#ifdef MINGW
+#if (defined __MINGW32__) || (defined __CYGWIN__)
 // workaround for stdlib.h and putenv
 #undef __STRICT_ANSI__
+
+#if (defined __MINGW32__)
 #include "strcasestr.h"
-#endif  // MINGW
+#elif !defined(_GNU_SOURCE)
+// needed for strcasestr in string.h
+#define _GNU_SOURCE
+#endif
+
+#elif defined(_MSC_VER)
+#include "strcasestr.h"
+#define strncasecmp _strnicmp
+#define strcasecmp _stricmp
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#ifndef _MSC_VER
 #include <sys/param.h>
+#endif
 #include <algorithm>
 
 #include "pango_font_info.h"
@@ -44,21 +58,22 @@
 #include "pango/pangocairo.h"
 #include "pango/pangofc-font.h"
 
-STRING_PARAM_FLAG(fonts_dir, "/auto/ocr-data/tesstraining/fonts",
-                  "Overrides system default font location");
 STRING_PARAM_FLAG(fontconfig_tmpdir, "/tmp",
                   "Overrides fontconfig default temporary dir");
-BOOL_PARAM_FLAG(fontconfig_refresh_cache, false,
-                "Does a one-time deletion of cache files from the "
-                "fontconfig_tmpdir before initializing fontconfig.");
 
 #ifndef USE_STD_NAMESPACE
 #include "ocr/trainingdata/typesetting/legacy_fonts.h"
 BOOL_PARAM_FLAG(use_only_legacy_fonts, false,
                 "Overrides --fonts_dir and sets the known universe of fonts to"
                 "the list in legacy_fonts.h");
+
+STRING_PARAM_FLAG(fonts_dir, "/auto/ocr-data/tesstraining/fonts",
+                  "Overrides system default font location");
 #else
 using std::pair;
+STRING_PARAM_FLAG(fonts_dir, "",
+                  "If empty it use system default. Otherwise it overrides"
+                  " system default font location");
 #endif
 
 namespace tesseract {
@@ -66,6 +81,9 @@ namespace tesseract {
 // Default assumed output resolution. Required only for providing font metrics
 // in pixels.
 const int kDefaultResolution = 300;
+
+string PangoFontInfo::fonts_dir_;
+string PangoFontInfo::cache_dir_;
 
 PangoFontInfo::PangoFontInfo() : desc_(NULL), resolution_(kDefaultResolution) {
   Clear();
@@ -93,6 +111,8 @@ void PangoFontInfo::Clear() {
   }
 }
 
+PangoFontInfo::~PangoFontInfo() { pango_font_description_free(desc_); }
+
 string PangoFontInfo::DescriptionName() const {
   if (!desc_) return "";
   char* desc_str = pango_font_description_to_string(desc_);
@@ -101,24 +121,30 @@ string PangoFontInfo::DescriptionName() const {
   return desc_name;
 }
 
-// Initializes Fontconfig for use by writing a fake fonts.conf file into the
-// FLAGS_fontconfigs_tmpdir directory, that points to the supplied
-// FLAGS_fonts_dir, and then overrides the FONTCONFIG_PATH environment variable
-// to point to this fonts.conf file.
-static void InitFontconfig() {
-  static bool init_fontconfig = false;
-  if (init_fontconfig || FLAGS_fonts_dir.empty()) {
-    init_fontconfig = true;
-    return;
+// If not already initialized, initializes FontConfig by setting its
+// environment variable and creating a fonts.conf file that points to the
+// FLAGS_fonts_dir and the cache to FLAGS_fontconfig_tmpdir.
+/* static */
+void PangoFontInfo::SoftInitFontConfig() {
+  if (fonts_dir_.empty()) {
+    HardInitFontConfig(FLAGS_fonts_dir.c_str(),
+                       FLAGS_fontconfig_tmpdir.c_str());
   }
-  if (FLAGS_fontconfig_refresh_cache) {
-    tprintf("Deleting cache files from %s\n", FLAGS_fontconfig_tmpdir.c_str());
-    File::DeleteMatchingFiles(File::JoinPath(
-        FLAGS_fontconfig_tmpdir.c_str(), "*cache-2").c_str());
+}
+
+// Re-initializes font config, whether or not already initialized.
+// If already initialized, any existing cache is deleted, just to be sure.
+/* static */
+void PangoFontInfo::HardInitFontConfig(const string& fonts_dir,
+                                       const string& cache_dir) {
+  if (!cache_dir_.empty()) {
+    File::DeleteMatchingFiles(
+        File::JoinPath(cache_dir_.c_str(), "*cache-?").c_str());
   }
-  tprintf("Initializing fontconfig\n");
   const int MAX_FONTCONF_FILESIZE = 1024;
   char fonts_conf_template[MAX_FONTCONF_FILESIZE];
+  cache_dir_ = cache_dir;
+  fonts_dir_ = fonts_dir;
   snprintf(fonts_conf_template, MAX_FONTCONF_FILESIZE,
            "<?xml version=\"1.0\"?>\n"
            "<!DOCTYPE fontconfig SYSTEM \"fonts.dtd\">\n"
@@ -126,27 +152,32 @@ static void InitFontconfig() {
            "<dir>%s</dir>\n"
            "<cachedir>%s</cachedir>\n"
            "<config></config>\n"
-           "</fontconfig>", FLAGS_fonts_dir.c_str(),
-           FLAGS_fontconfig_tmpdir.c_str());
-  string fonts_conf_file = File::JoinPath(FLAGS_fontconfig_tmpdir.c_str(),
-                                          "fonts.conf");
+           "</fontconfig>",
+           fonts_dir.c_str(), cache_dir_.c_str());
+  string fonts_conf_file = File::JoinPath(cache_dir_.c_str(), "fonts.conf");
   File::WriteStringToFileOrDie(fonts_conf_template, fonts_conf_file);
 #ifdef _WIN32
   std::string env("FONTCONFIG_PATH=");
-  env.append(FLAGS_fontconfig_tmpdir.c_str());
+  env.append(cache_dir_.c_str());
   putenv(env.c_str());
   putenv("LANG=en_US.utf8");
 #else
-  setenv("FONTCONFIG_PATH", FLAGS_fontconfig_tmpdir.c_str(), true);
+  setenv("FONTCONFIG_PATH", cache_dir_.c_str(), true);
   // Fix the locale so that the reported font names are consistent.
   setenv("LANG", "en_US.utf8", true);
 #endif  // _WIN32
-  init_fontconfig = true;
+
+  if (FcInitReinitialize() != FcTrue) {
+    tprintf("FcInitiReinitialize failed!!\n");
+  }
+  FontUtils::ReInit();
+  // Clear Pango's font cache too.
+  pango_cairo_font_map_set_default(NULL);
 }
 
 static void ListFontFamilies(PangoFontFamily*** families,
                              int* n_families) {
-  InitFontconfig();
+  PangoFontInfo::SoftInitFontConfig();
   PangoFontMap* font_map = pango_cairo_font_map_get_default();
   DISABLE_HEAP_LEAK_CHECK;
   pango_font_map_list_families(font_map, families, n_families);
@@ -202,7 +233,7 @@ bool PangoFontInfo::ParseFontDescription(const PangoFontDescription *desc) {
                    == PANGO_VARIANT_SMALL_CAPS);
 
   is_bold_ = (pango_font_description_get_weight(desc) >= PANGO_WEIGHT_BOLD);
-  // We dont have a way to detect whether a font is of type Fraktur. The fonts
+  // We don't have a way to detect whether a font is of type Fraktur. The fonts
   // we currently use all have "Fraktur" in their family name, so we do a
   // fragile but functional check for that here.
   is_fraktur_ = (strcasestr(family, "Fraktur") != NULL);
@@ -220,7 +251,7 @@ bool PangoFontInfo::ParseFontDescriptionName(const string& name) {
 // in the font map. Note that if the font is wholly missing, this could
 // correspond to a completely different font family and face.
 PangoFont* PangoFontInfo::ToPangoFont() const {
-  InitFontconfig();
+  SoftInitFontConfig();
   PangoFontMap* font_map = pango_cairo_font_map_get_default();
   PangoContext* context = pango_context_new();
   pango_cairo_context_set_resolution(context, resolution_);
@@ -253,6 +284,28 @@ bool PangoFontInfo::CoversUTF8Text(const char* utf8_text, int byte_length) const
   return true;
 }
 
+// This variant of strncpy permits src and dest to overlap. It will copy the
+// first byte first.
+static char* my_strnmove(char* dest, const char* src, size_t n) {
+  char* ret = dest;
+
+  // Copy characters until n reaches zero or the src byte is a nul.
+  do {
+    *dest = *src;
+    --n;
+    ++dest;
+    ++src;
+  } while (n && src[0]);
+
+  // If we reached a nul byte and there are more 'n' left, zero them out.
+  while (n) {
+    *dest = '\0';
+    --n;
+    ++dest;
+  }
+  return ret;
+}
+
 int PangoFontInfo::DropUncoveredChars(string* utf8_text) const {
   PangoFont* font = ToPangoFont();
   PangoCoverage* coverage = pango_font_get_coverage(font, NULL);
@@ -265,23 +318,30 @@ int PangoFontInfo::DropUncoveredChars(string* utf8_text) const {
       UNICHAR::begin(utf8_text->c_str(), utf8_text->length());
   const UNICHAR::const_iterator it_end =
       UNICHAR::end(utf8_text->c_str(), utf8_text->length());
-  for (UNICHAR::const_iterator it = it_begin; it != it_end; ++it) {
+  for (UNICHAR::const_iterator it = it_begin; it != it_end;) {
     // Skip bad utf-8.
-    if (!it.is_legal())
-      continue;  // One suitable error message will still be issued.
-    if (!IsWhitespace(*it) && !pango_is_zero_width(*it) &&
-        pango_coverage_get(coverage, *it) != PANGO_COVERAGE_EXACT) {
+    if (!it.is_legal()) {
+      ++it;  // One suitable error message will still be issued.
+      continue;
+    }
+    int unicode = *it;
+    int utf8_len = it.utf8_len();
+    const char* utf8_char = it.utf8_data();
+    // Move it forward before the data gets modified.
+    ++it;
+    if (!IsWhitespace(unicode) && !pango_is_zero_width(unicode) &&
+        pango_coverage_get(coverage, unicode) != PANGO_COVERAGE_EXACT) {
       if (TLOG_IS_ON(2)) {
-        char tmp[5];
-        int len = it.get_utf8(tmp);
-        tmp[len] = '\0';
-        tlog(2, "'%s' (U+%x) not covered by font\n", tmp, *it);
+        UNICHAR unichar(unicode);
+        char* str = unichar.utf8_str();
+        tlog(2, "'%s' (U+%x) not covered by font\n", str, unicode);
+        delete[] str;
       }
       ++num_dropped_chars;
       continue;
     }
-    strncpy(out, it.utf8_data(), it.utf8_len());
-    out += it.utf8_len();
+    my_strnmove(out, utf8_char, utf8_len);
+    out += utf8_len;
   }
   utf8_text->resize(out - utf8_text->c_str());
   return num_dropped_chars;
@@ -374,8 +434,17 @@ bool PangoFontInfo::CanRenderString(const char* utf8_word, int len,
     }
     PangoGlyph dotted_circle_glyph;
     PangoFont* font = run->item->analysis.font;
+
+#ifdef _WIN32  // Fixme! Leaks memory and breaks unittests.
+    PangoGlyphString* glyphs = pango_glyph_string_new();
+    char s[] = "\xc2\xa7";
+    pango_shape(s, sizeof(s), &(run->item->analysis), glyphs);
+    dotted_circle_glyph = glyphs->glyphs[0].glyph;
+#else
     dotted_circle_glyph = pango_fc_font_get_glyph(
         reinterpret_cast<PangoFcFont*>(font), kDottedCircleGlyph);
+#endif
+
     if (TLOG_IS_ON(2)) {
       PangoFontDescription* desc = pango_font_describe(font);
       char* desc_str = pango_font_description_to_string(desc);
@@ -438,6 +507,7 @@ bool PangoFontInfo::CanRenderString(const char* utf8_word, int len,
 
 
 // ------------------------ FontUtils ------------------------------------
+vector<string> FontUtils::available_fonts_;  // cache list
 
 // Returns whether the specified font description is available in the fonts
 // directory.
@@ -449,24 +519,24 @@ bool PangoFontInfo::CanRenderString(const char* utf8_word, int len,
 // from the font_map, and then check what we loaded to see if it has the
 // description we expected. If it is not, then the font is deemed unavailable.
 /* static */
-bool FontUtils::IsAvailableFont(const char* input_query_desc) {
+bool FontUtils::IsAvailableFont(const char* input_query_desc,
+                                string* best_match) {
   string query_desc(input_query_desc);
-  if (PANGO_VERSION <= 12005) {
-    // Strip commas and any ' Medium' substring in the name.
-    query_desc.erase(std::remove(query_desc.begin(), query_desc.end(), ','),
-                     query_desc.end());
-    const string kMediumStr = " Medium";
-    std::size_t found = query_desc.find(kMediumStr);
-    if (found != std::string::npos) {
-      query_desc.erase(found, kMediumStr.length());
-    }
+#if (PANGO_VERSION <= 12005)
+  // Strip commas and any ' Medium' substring in the name.
+  query_desc.erase(std::remove(query_desc.begin(), query_desc.end(), ','),
+                   query_desc.end());
+  const string kMediumStr = " Medium";
+  std::size_t found = query_desc.find(kMediumStr);
+  if (found != std::string::npos) {
+    query_desc.erase(found, kMediumStr.length());
   }
-
+#endif
   PangoFontDescription *desc = pango_font_description_from_string(
       query_desc.c_str());
   PangoFont* selected_font = NULL;
   {
-    InitFontconfig();
+    PangoFontInfo::SoftInitFontConfig();
     PangoFontMap* font_map = pango_cairo_font_map_get_default();
     PangoContext* context = pango_context_new();
     pango_context_set_font_map(context, font_map);
@@ -488,9 +558,18 @@ bool FontUtils::IsAvailableFont(const char* input_query_desc) {
        pango_font_description_get_weight(selected_desc));
 
   char* selected_desc_str = pango_font_description_to_string(selected_desc);
-  tlog(2, "query_desc: '%s' Selected: 's'\n", query_desc.c_str(),
+  tlog(2, "query_desc: '%s' Selected: '%s'\n", query_desc.c_str(),
        selected_desc_str);
-
+  if (!equal && best_match != NULL) {
+    *best_match = selected_desc_str;
+    // Clip the ending ' 0' if there is one. It seems that, if there is no
+    // point size on the end of the fontname, then Pango always appends ' 0'.
+    int len = best_match->size();
+    if (len > 2 && best_match->at(len - 1) == '0' &&
+        best_match->at(len - 2) == ' ') {
+      *best_match = best_match->substr(0, len - 2);
+    }
+  }
   g_free(selected_desc_str);
   pango_font_description_free(selected_desc);
   g_object_unref(selected_font);
@@ -512,8 +591,7 @@ static bool ShouldIgnoreFontFamilyName(const char* query) {
 // Outputs description names of available fonts.
 /* static */
 const vector<string>& FontUtils::ListAvailableFonts() {
-  static vector<string> available_fonts_;  // cache list
-  if (available_fonts_.size()) {
+  if (!available_fonts_.empty()) {
     return available_fonts_;
   }
 #ifndef USE_STD_NAMESPACE
@@ -536,8 +614,9 @@ const vector<string>& FontUtils::ListAvailableFonts() {
   for (int i = 0; i < n_families; ++i) {
     const char* family_name = pango_font_family_get_name(families[i]);
     tlog(2, "Listing family %s\n", family_name);
-    if (ShouldIgnoreFontFamilyName(family_name))
+    if (ShouldIgnoreFontFamilyName(family_name)) {
       continue;
+    }
 
     int n_faces;
     PangoFontFace** faces = NULL;
@@ -609,9 +688,8 @@ void FontUtils::GetAllRenderableCharacters(const vector<string>& fonts,
 // Utilities written to be backward compatible with StringRender
 
 /* static */
-int FontUtils::FontScore(const unordered_map<char32, inT64>& ch_map,
-                         const string& fontname,
-                         int* raw_score,
+int FontUtils::FontScore(const TessHashMap<char32, inT64>& ch_map,
+                         const string& fontname, int* raw_score,
                          vector<bool>* ch_flags) {
   PangoFontInfo font_info;
   if (!font_info.ParseFontDescriptionName(fontname)) {
@@ -626,7 +704,7 @@ int FontUtils::FontScore(const unordered_map<char32, inT64>& ch_map,
   }
   *raw_score = 0;
   int ok_chars = 0;
-  for (unordered_map<char32, inT64>::const_iterator it = ch_map.begin();
+  for (TessHashMap<char32, inT64>::const_iterator it = ch_map.begin();
        it != ch_map.end(); ++it) {
     bool covered = (IsWhitespace(it->first) ||
                     (pango_coverage_get(coverage, it->first)
@@ -644,7 +722,7 @@ int FontUtils::FontScore(const unordered_map<char32, inT64>& ch_map,
 
 
 /* static */
-string FontUtils::BestFonts(const unordered_map<char32, inT64>& ch_map,
+string FontUtils::BestFonts(const TessHashMap<char32, inT64>& ch_map,
                             vector<pair<const char*, vector<bool> > >* fonts) {
   const double kMinOKFraction = 0.99;
   // Weighted fraction of characters that must be renderable in a font to make
@@ -732,5 +810,9 @@ bool FontUtils::SelectFont(const char* utf8_word, const int utf8_len,
   }
   return false;
 }
+
+// PangoFontInfo is reinitialized, so clear the static list of fonts.
+/* static */
+void FontUtils::ReInit() { available_fonts_.clear(); }
 
 }  // namespace tesseract

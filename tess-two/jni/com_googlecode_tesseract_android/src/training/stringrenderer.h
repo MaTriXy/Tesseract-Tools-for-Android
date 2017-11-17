@@ -50,7 +50,7 @@ class StringRenderer {
   StringRenderer(const string& font_desc, int page_width, int page_height);
   ~StringRenderer();
 
-  // Renders the text with the chosen font and returns the byte offset upto
+  // Renders the text with the chosen font and returns the byte offset up to
   // which the text could be rendered so as to fit the specified page
   // dimensions.
   int RenderToImage(const char* text, int text_length, Pix** pix);
@@ -83,16 +83,16 @@ class StringRenderer {
   // Sets the probability (value in [0, 1]) of starting to render a word with an
   // underline. This implementation consider words to be space-delimited
   // sequences of characters.
-  void set_underline_start_prob(const double frac) {
-    underline_start_prob_ = std::min(std::max(frac, 0.0), 1.0);
-  }
+  void set_underline_start_prob(const double frac);
   // Set the probability (value in [0, 1]) of continuing a started underline to
   // the next word.
-  void set_underline_continuation_prob(const double frac) {
-    underline_continuation_prob_ = std::min(std::max(frac, 0.0), 1.0);
-  }
+  void set_underline_continuation_prob(const double frac);
   void set_underline_style(const PangoUnderline style) {
     underline_style_ = style;
+  }
+  void set_features(const char* features) {
+    free(features_);
+    features_ = strdup(features);
   }
   void set_page(int page) {
     page_ = page;
@@ -130,16 +130,12 @@ class StringRenderer {
   const PangoFontInfo& font() const {
     return font_;
   }
-  const int h_margin() const {
-    return h_margin_;
-  }
-  const int v_margin() const {
-    return v_margin_;
-  }
+  int h_margin() const { return h_margin_; }
+  int v_margin() const { return v_margin_; }
 
   // Get the boxchars of all clusters rendered thus far (or since the last call
   // to ClearBoxes()).
-  const vector<BoxChar*>& GetBoxes() const;
+  const std::vector<BoxChar*>& GetBoxes() const;
   // Get the rendered page bounding boxes of all pages created thus far (or
   // since last call to ClearBoxes()).
   Boxa* GetPageBoxes() const;
@@ -148,7 +144,10 @@ class StringRenderer {
   void RotatePageBoxes(float rotation);
   // Delete all boxes.
   void ClearBoxes();
-  void WriteAllBoxes(const string& filename) const;
+  // Returns the boxes in a boxfile string.
+  string GetBoxesStr();
+  // Writes the boxes to a boxfile.
+  void WriteAllBoxes(const string& filename);
   // Removes space-delimited words from the string that are not renderable by
   // the current font and returns the count of such words.
   int StripUnrenderableWords(string* utf8_text) const;
@@ -172,8 +171,8 @@ class StringRenderer {
   void SetWordUnderlineAttributes(const string& page_text);
   // Compute bounding boxes around grapheme clusters.
   void ComputeClusterBoxes();
-  void CorrectBoxPositionsToLayout(vector<BoxChar*>* boxchars);
-  bool GetClusterStrings(vector<string>* cluster_text);
+  void CorrectBoxPositionsToLayout(std::vector<BoxChar*>* boxchars);
+  bool GetClusterStrings(std::vector<string>* cluster_text);
   int FindFirstPageBreakOffset(const char* text, int text_length);
 
   PangoFontInfo font_;
@@ -189,6 +188,7 @@ class StringRenderer {
   double underline_start_prob_;
   double underline_continuation_prob_;
   PangoUnderline underline_style_;
+  char* features_;
   // Text filtering options
   bool drop_uncovered_chars_;
   bool strip_unrenderable_words_;
@@ -204,13 +204,13 @@ class StringRenderer {
   int page_;
   // Boxes and associated text for all pages rendered with RenderToImage() since
   // the last call to ClearBoxes().
-  vector<BoxChar*> boxchars_;
+  std::vector<BoxChar*> boxchars_;
   int box_padding_;
   // Bounding boxes for pages since the last call to ClearBoxes().
   Boxa* page_boxes_;
 
   // Objects cached for subsequent calls to RenderAllFontsToImage()
-  hash_map<char32, inT64> char_map_;  // Time-saving char histogram.
+  TessHashMap<char32, inT64> char_map_;  // Time-saving char histogram.
   int total_chars_;   // Number in the string to be rendered.
   int font_index_;    // Index of next font to use in font list.
   int last_offset_;   // Offset returned from last successful rendering
