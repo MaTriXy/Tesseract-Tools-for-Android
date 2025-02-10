@@ -120,7 +120,7 @@ public class Pixa implements Iterable<Pix> {
         if (mRecycled)
             throw new IllegalStateException();
 
-        int nativePixa = nativeCopy(mNativePixa);
+        long nativePixa = nativeCopy(mNativePixa);
 
         if (nativePixa == 0) {
             throw new OutOfMemoryError();
@@ -143,7 +143,7 @@ public class Pixa implements Iterable<Pix> {
         if (mRecycled)
             throw new IllegalStateException();
 
-        int nativePixa = nativeSort(mNativePixa, field, order);
+        long nativePixa = nativeSort(mNativePixa, field, order);
 
         if (nativePixa == 0) {
             throw new OutOfMemoryError();
@@ -412,11 +412,11 @@ public class Pixa implements Iterable<Pix> {
 
     /**
      * Replaces the Pix and Box at the specified index with the specified Pix
-     * and Box, both of which may be recycled after calling this method.
+     * and Box, both of which should not be recycled after calling this method.
      *
      * @param index The index of the Pix to replace.
-     * @param pix The Pix to replace the existing Pix.
-     * @param box The Box to replace the existing Box.
+     * @param pix The Pix to replace the existing Pix; it becomes an alias of the one stored in Pixa.
+     * @param box The Box to replace the existing Box; it becomes an alias of the one stored in Pixa.
      */
     public void replacePix(int index, Pix pix, Box box) {
         if (mRecycled)
@@ -484,11 +484,11 @@ public class Pixa implements Iterable<Pix> {
     // * NATIVE CODE *
     // ***************
 
-    private static native int nativeCreate(int size);
+    private static native long nativeCreate(int size);
 
-    private static native int nativeCopy(long nativePixa);
+    private static native long nativeCopy(long nativePixa);
 
-    private static native int nativeSort(long nativePixa, int field, int order);
+    private static native long nativeSort(long nativePixa, int field, int order);
 
     private static native boolean nativeJoin(long nativePixa, long otherPixa);
 
